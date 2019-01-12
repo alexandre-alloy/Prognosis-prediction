@@ -17,6 +17,10 @@
 #Implement Parallelization (divide MRs into bins of equal sizes, randomly distribute across cores)
 
 #consider implementing an alternative, optional feature selection scheme: pick most significant regulators, then iterate through all regulators to find the best, then the second best, etc
+
+#subdivide validation into two functions:
+#first part: will prepare the data for the validation (make sure there is enough samples, organize the training and validation data, compute the signatures and the viper activity)
+#second part is the validation with the results acquisition --- same function can be called for running validation, negative control, null model and final inter-iteration validation
 validation <- function(Risk_group_classification_object = NULL, 
                                 k, 
                                 c,
@@ -24,18 +28,20 @@ validation <- function(Risk_group_classification_object = NULL,
                                 classification_algorithm = c('random_forest', 'logistic_regression', 'lda','svm', 'xgboost', 'neural_nets'),
                                 nb_iterations = 100,
                                 MR_range = 1:50, #range of ranked MRs for which to compute AUC
-                                interactome, 
+                                interactome = NULL,
+                                GEM = NULL,
                                 top_and_bottom = TRUE, 
                                 equilibrate_top_bottom = FALSE,
                                 mRNA_control = FALSE, 
                                 random_negative_control = TRUE,
                                 equilibrate_classes = FALSE, #different from folds- equilibrate classes. Here will drop off extra patients from the majority class
                                 save_path = './intermediate_files',
-                                savefile = TRUE){
+                                savefile = TRUE,
+                                loadfile = TRUE){
   
   set.seed(as.integer((as.double(Sys.time())*1000+Sys.getpid()) %% 2^31))
   
-  if (is.null(Risk_group_classification_object)){
+  if (is.null(Risk_group_classification_object) || loadfile == TRUE){
     load_risk_group_classification_file = TRUE #will load an rda object with the risk group classification object
   } else {
     load_risk_group_classification_file = FALSE 
@@ -65,12 +71,20 @@ validation <- function(Risk_group_classification_object = NULL,
     list_pred_neg_ctrl = list()
     list_truth_neg_ctrl = list()
     
+    if (load_risk_group_classification_file == TRUE){
+      folds_object = readRDS('./intermediate_files/folds.rda')
+      interactome = folds_object$Experimental_Settings$interactome
+      GEM = folds_object[[paste0('iter_',pipeline_iterations)]]$folds$GEM  
+    }
+    
+    
     #iteration through each value of k
     for (fold_iter in k){
       message('Computing fold  ', fold_iter)
       
       #two possible inputs: in the function call or by loading a data file
       if (load_risk_group_classification_file == TRUE) Risk_group_classification_object = readRDS(paste0(save_path, '/norm_clust_p', pipeline_iterations, '_k', fold_iter, '.rda'))
+
       
       #Gene expression matrices (vst-normalized) are fold-specific
       GEM_training = as.matrix(Risk_group_classification_object[[paste0('iter_', pipeline_iterations)]]$list_training_vst[[fold_iter]])
@@ -84,6 +98,7 @@ validation <- function(Risk_group_classification_object = NULL,
         group_1_validation = intersect(names(which(Risk_group_classification_object[[paste0('iter_', pipeline_iterations)]]$list_c_validation[[fold_iter]] == clust_iter)), Risk_group_classification_object[[paste0('iter_', pipeline_iterations)]]$patient_group_1)
         group_2_validation = intersect(names(which(Risk_group_classification_object[[paste0('iter_', pipeline_iterations)]]$list_c_validation[[fold_iter]]== clust_iter)), Risk_group_classification_object[[paste0('iter_', pipeline_iterations)]]$patient_group_2)
         
+##################################
         #partial results (fold_iter and clust_iter - specific) are stored in matrix_res, list_pred_validation and list_truth_validation
         if (stochastic_method == FALSE){
           matrix_res = matrix(data = 0, nrow = 1, ncol = length(MR_range))
@@ -316,6 +331,7 @@ validation <- function(Risk_group_classification_object = NULL,
           }
           
         }
+###########################
       }#end clust_iter
     }#end fold_iter (k)
     

@@ -76,7 +76,9 @@ Initial_processing_folds <- function(patient_group_1, patient_group_2,
                                     equilibrate_classes = FALSE,
                                     downsample_majority_class = TRUE,
                                     oversample_minority_class = FALSE,
-                                    SMOTE = FALSE, TOMEK = FALSE, GEM = NULL,
+                                    SMOTE = FALSE, TOMEK = FALSE, 
+                                    GEM = NULL,
+                                    interactome = NULL,
                                     save_path = './intermediate_files',
                                     savefile = TRUE){
   
@@ -132,8 +134,8 @@ Initial_processing_folds <- function(patient_group_1, patient_group_2,
   list_folds$Experimental_Settings$nb_folds = nb_folds
   list_folds$Experimental_Settings$holdout_data = holdout_data
   list_folds$Experimental_Settings$nb_iterations_pipeline = nb_iterations_pipeline
-  list_folds$Experimental_Settings$equilibrate_classes
-  list_folds$Experimental_Settings$equilibrate_classes_heldout_data
+  list_folds$Experimental_Settings$equilibrate_classes = equilibrate_classes
+  list_folds$Experimental_Settings$interactome = interactome
     
   
   for (pipeline_iterations in 1:nb_iterations_pipeline){
@@ -191,28 +193,35 @@ Initial_processing_folds <- function(patient_group_1, patient_group_2,
 
 
 
-Initial_normalization_clust <- function(GEM, #RNA seq counts matrix (if normalized, set run_vst to FALSE, if not normalized, set run_vst to TRUE)
-                               interactome, #aracne2regulon output
-                               Initial_processing_folds_object, #object name resulting from Initial_processing_folds
-                               compute_folds = 3, #compute individual folds 
-                               nb_clusters = 1, #preset number of clusters before run
-                               cluster_GEM = TRUE, #if TRUE will cluster on the vst-GEM; if FALSE will cluster on the VIPER matrix
-                               run_vst = TRUE,
-                               clustering_algo = c('consensus clustering', 'Mclust', 'UMAP', 'none'), #clustering algorithm #implement UMAP
-                               clustering_subset = NULL, #if not null, cluster viper matrix on subset of features listed here
-                               mRNA_control = FALSE, #run pipeline once with mRNA_control set to TRUE to compare classification accuracy for mRNA expression vs viper activity
-                               pipeline_iter = 1, #list of pipeline iterations to compute (e.g.: c(1,2,3), 1:10, 3, etc), default: 1 (if the pipeline is only run once)
-                               save_path = './intermediate_files', #save result in file name
-                               savefile = TRUE
+Initial_normalization_clust <- function(Initial_processing_folds_object, #object name resulting from Initial_processing_folds
+                                        GEM = NULL, #RNA seq counts matrix (if normalized, set run_vst to FALSE, if not normalized, set run_vst to TRUE)
+                                        interactome = NULL, #aracne2regulon output
+                                        compute_folds = 3, #compute individual folds 
+                                        nb_clusters = 1, #preset number of clusters before run
+                                        cluster_GEM = TRUE, #if TRUE will cluster on the vst-GEM; if FALSE will cluster on the VIPER matrix
+                                        run_vst = TRUE,
+                                        clustering_algo = c('consensus clustering', 'Mclust', 'UMAP', 'none'), #clustering algorithm #implement UMAP
+                                        clustering_subset = NULL, #if not null, cluster viper matrix on subset of features listed here
+                                        mRNA_control = FALSE, #run pipeline once with mRNA_control set to TRUE to compare classification accuracy for mRNA expression vs viper activity
+                                        pipeline_iter = 1, #list of pipeline iterations to compute (e.g.: c(1,2,3), 1:10, 3, etc), default: 1 (if the pipeline is only run once)
+                                        save_path = './intermediate_files', #save result in file name
+                                        savefile = TRUE,
+                                        loadfile = TRUE
                                ){
+  
+  if (loadfile == TRUE) {
+    Initial_processing_folds_object = readRDS(file = './intermediate_files/folds.rda')
+    interactome = Initial_processing_folds_object$interactome
+    }
+  
   
   normalization_res = list()
   
   
   for (pipeline_iterations in pipeline_iter){
     message(paste0('Computing pipeline iteration ', pipeline_iterations, '\n'))
-    if (is.null(folds_res[[paste0('iter_',pipeline_iterations)]]$folds$GEM) == FALSE) GEM = folds_res[[paste0('iter_',pipeline_iterations)]]$folds$GEM
-      
+    if (is.null(folds_res[[paste0('iter_',pipeline_iterations)]]$folds$GEM) == FALSE || loadfile == TRUE) GEM = folds_res[[paste0('iter_',pipeline_iterations)]]$folds$GEM
+    
     GEM = as.matrix(GEM)
     patient_group_1 = Initial_processing_folds_object[[ paste0('iter_',pipeline_iterations) ]]$patient_group_1
     patient_group_2 = Initial_processing_folds_object[[ paste0('iter_',pipeline_iterations) ]]$patient_group_2
