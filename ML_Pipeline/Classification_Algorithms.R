@@ -16,6 +16,11 @@ classification <- function(classification_method = c('random_forest', 'logistic_
                            features,
                            return_rf = FALSE){
   
+  dashes_in_colnames = length(grep('-', colnames(vp_matrix))) > 0
+  vp_matrix = data.frame(vp_matrix)
+  if (dashes_in_colnames == TRUE) colnames(vp_matrix) <- gsub('\\.', '-', colnames(vp_matrix))
+  
+  if (!classification_method %in% c('random_forest', 'logistic_regression', 'lda','svm', 'xgboost', 'neural_nets')) stop('Error: classification method must be one of the following: "random_forest", "logistic_regression", "lda","svm", "xgboost", "neural_nets"')
   
   if (classification_method == 'random_forest') return(Random_forest_classification(vp_matrix = vp_matrix,
                                                                              group_1_training = group_1_training,
@@ -101,12 +106,13 @@ Logistic_regression_classification <- function(vp_matrix,
   glm_res = glm(formula = c(labels_training, labels_validation) ~ t(vp_matrix[ features , c(group_1_training, group_2_training, group_1_validation, group_2_validation) ]) , 
                 family = binomial(link='logit'), 
                 subset = which(colnames(vp_matrix) %in% c(group_1_training, group_2_training)) )
+
   
-  predictions = predict(object = glm_res, newdata = as.data.frame(t(vp_matrix[features,   ])), type = 'response' )
-  
-  
+  df_colnames = colnames(vp_matrix) #keep the colnames in memory because when converting to a dataframe, dashes are converted to dots
+  predictions_res = predict.glm(object = glm_res, newdata = data.frame(t(vp_matrix), row.names = df_colnames), type = 'response', probability = TRUE )[c(group_1_validation, group_2_validation)]
+
   if (length(group_1_validation) >= 1 & length(group_2_validation) >= 1){ #Only compute AUC if we have at least one sample for each group (otherwise prediction function throws an error saying that we have a number of classes not equal to 2)
-    AUC = Calculate_AUC(predictions = predictions[c(group_1_validation, group_2_validation)], truth = labels_validation )
+    AUC = Calculate_AUC(predictions = predictions_res, truth = labels_validation )
   }
   else{
     AUC = NULL #in LOOCV, cannot compute AUC for a single data point, instead keep the predictions and truth values and compute the AUC later with all the patients pooled together
@@ -114,7 +120,7 @@ Logistic_regression_classification <- function(vp_matrix,
 
   return(list(AUC = AUC,
               truth = as.integer(labels_validation),
-              predictions = as.double(predictions[labels_validation])))
+              predictions = as.double(predictions_res)))
    
 }
 
@@ -139,6 +145,7 @@ LDA <- function(vp_matrix,
   
   predictions = predict(object = lda_res, newdata = as.data.frame(t(vp_matrix)), type = 'response' )$posterior[c(group_1_validation, group_2_validation),2]
   
+  
   if (length(group_1_validation) >= 1 & length(group_2_validation) >= 1){ #Only compute AUC if we have at least one sample for each group (otherwise prediction function throws an error saying that we have a number of classes not equal to 2)
     AUC = Calculate_AUC(predictions = predictions, truth = labels_validation )
   }
@@ -148,7 +155,7 @@ LDA <- function(vp_matrix,
   
   return(list(AUC = AUC,
               truth = as.integer(labels_validation),
-              predictions = as.double(predictions[labels_validation])))
+              predictions = as.double(predictions)))
   
   
 }
@@ -173,8 +180,7 @@ SVM <- function(vp_matrix,
                  subset = 1:length(labels_training))
   
   predictions = attr(predict(object = svm_res, newdata = t(vp_matrix), type = 'response', probability = TRUE ), 'probabilities')[c(group_1_validation, group_2_validation),2] 
-  
-  
+
   if (length(group_1_validation) >= 1 & length(group_2_validation) >= 1){ #Only compute AUC if we have at least one sample for each group (otherwise prediction function throws an error saying that we have a number of classes not equal to 2)
     AUC = Calculate_AUC(predictions = predictions, truth = labels_validation )
   }
@@ -182,11 +188,11 @@ SVM <- function(vp_matrix,
     AUC = NULL #in LOOCV, cannot compute AUC for a single data point, instead keep the predictions and truth values and compute the AUC later with all the patients pooled together
   }
   
+  #predictions = as.double(predictions[labels_validation])
   return(list(AUC = AUC,
               truth = as.integer(labels_validation),
-              predictions = as.double(predictions[labels_validation])))
-  
-  
+              predictions = as.double(predictions)))
+
 }
 
 
