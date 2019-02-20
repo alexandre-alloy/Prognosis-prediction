@@ -4,22 +4,22 @@ FUNCTIONS_RDATA=/ifs/scratch/c2b2/ac_lab/apa2118/rscripts/classification_by_MRs/
 LIST_PATIENT_GROUPS=/ifs/scratch/c2b2/ac_lab/apa2118/rscripts/classification_by_MRs/AML/list_patients.rds #rda file with a list of lists of patients. use patient categories as names
 PATIENT_GROUP_1="multiple_intersect(High_risk, diagnostic, AAML0531)" #testing group, group with a phenotype, e.g. "dead", "relapse"
 PATIENT_GROUP_2="multiple_intersect(Low_risk, diagnostic, AAML0531)" #name of a list corresponding to the first group of patients (control group, e.g "alive", "censored")
-EXP_NAME=AML_HR_LR_diag_AAML0531
+EXP_NAME=AML_HR_LR_diag_AAML0531_2bs_RF
 WORKING_DIR=/ifs/scratch/c2b2/ac_lab/apa2118/rscripts/classification_by_MRs/AML/${EXP_NAME}
 PATH_TO_GENE_EXP_MAT=/ifs/scratch/c2b2/ac_lab/apa2118/rscripts/classification_by_MRs/AML/AML_cpm_entrez.rds #in txt or rds format
 PATH_TO_INTERACTOME=/ifs/scratch/c2b2/ac_lab/apa2118/rscripts/classification_by_MRs/AML/interactome_TF_coTF_AML.rds #in rds format
-NUMBER_OF_FOLDS=5
+NUMBER_OF_FOLDS=2
 NUMBER_OF_CLUSTERS=1
 CLUSTERING_ALGORITHM=Mclust #available options: consensus clustering, Mclust, none (if NUMBER_OF_CLUSTERS == 1: "none" is assigned automatically)
 CLUSTER_GEM=TRUE #if TRUE, clustering is performed on the GEM, if FALSE clustering is performed on the VIPER matrix
-CLASSIFICATION_ALGORITHM=lda #available options: random_forest, logistic_regression, lda, svm
+CLASSIFICATION_ALGORITHM=random_forest #available options: random_forest, logistic_regression, lda, svm
 PCT_HELDOUT_DATA_PER_PIPELINE_ITERATION=0.25
 CV_TYPE=monte_carlo #available options: kfold , LOOCV, monte_carlo
 VALIDATION_FOLD_SIZE=0.25 #Only used with monte carlo - a proportion of the sample set for validation e.g. 0.3
 COMPUTE_NULL=TRUE
 RANDOM_NEGATIVE_CONTROL=TRUE #if false, "non-significant" features are used as predictors for the negative control
-EQUILIBRATE_CLASSES=FALSE
-DOWNSAMPLE_MAJORITY_CLASS=FALSE
+EQUILIBRATE_CLASSES=TRUE
+DOWNSAMPLE_MAJORITY_CLASS=TRUE
 OVERSAMPLE_MINORITY_CLASS=FALSE
 SMOTE=FALSE
 TOMEK=FALSE
@@ -27,6 +27,7 @@ RUN_VST=FALSE
 mRNA_CONTROL=FALSE
 TOP_AND_BOTTOM_FEATURES=FALSE  #if FALSE, will take top features only
 EQUILIBRATE_TOP_AND_BOTTOM_FEATURES=FALSE #if TRUE, will take the same number of top and bottom features
+PARTIAL_AUC="c(0,1)"
 NB_PIPELINE_ITERATIONS=$(bc<<<"1/${PCT_HELDOUT_DATA_PER_PIPELINE_ITERATION}")
 #remainder=$(bc<<<"1%${PCT_HELDOUT_DATA_PER_PIPELINE_ITERATION}")
 # if [  bc <<< "(1%${PCT_HELDOUT_DATA_PER_PIPELINE_ITERATION})!=0" ]; then
@@ -131,7 +132,8 @@ do
                         mRNA_control = ${mRNA_CONTROL},
                         random_negative_control = ${RANDOM_NEGATIVE_CONTROL},
                         compute_null = ${COMPUTE_NULL},
-                        equilibrate_classes = FALSE, #different from folds- equilibrate classes. Here will drop off extra patients from the majority class
+                        equilibrate_classes = FALSE,
+                        pAUC_range = ${PARTIAL_AUC},
                         save_path = './intermediate_files',
                         savefile = TRUE,
                         loadfile = TRUE)" > ${WORKING_DIR}/validation_p${pipeline_iter}_k${folds_iter}_c${clust_iter}_${EXP_NAME}_${CLASSIFICATION_ALGORITHM}.r
@@ -140,7 +142,7 @@ do
 
             qsub -N validation_p${pipeline_iter}_k${folds_iter}_c${clust_iter}_${EXP_NAME}_${CLASSIFICATION_ALGORITHM} \
             -hold_jid initial_normalization_clust_p${pipeline_iter}_k${folds_iter}_${EXP_NAME} \
-            -l mem=12G,time=4:: \
+            -l mem=6G,time=4:: \
             -wd ${WORKING_DIR} \
             -b y ${RSCRIPT} ${WORKING_DIR}/validation_p${pipeline_iter}_k${folds_iter}_c${clust_iter}_${EXP_NAME}_${CLASSIFICATION_ALGORITHM}.r
     done
@@ -183,6 +185,7 @@ do
                                 interactome,
                                 mRNA_control = ${mRNA_CONTROL},
                                 compute_null = ${COMPUTE_NULL},
+                                pAUC_range = ${PARTIAL_AUC},
                                 savefile = TRUE,
                                 loadfile = TRUE)" > ${WORKING_DIR}/internal_validation_p${pipeline_iter}_c${clust_iter}.r
 
