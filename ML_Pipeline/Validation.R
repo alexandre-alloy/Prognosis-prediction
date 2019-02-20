@@ -22,23 +22,24 @@
 #first part: will prepare the data for the validation (make sure there is enough samples, organize the training and validation data, compute the signatures and the viper activity)
 #second part is the validation with the results acquisition --- same function can be called for running validation, negative control, null model and final inter-iteration validation
 validation <- function(Risk_group_classification_object = NULL, 
-                                k, 
-                                c,
-                                pipeline_iter = 1,
-                                classification_algorithm = c('random_forest', 'logistic_regression', 'lda','svm', 'xgboost', 'neural_nets'),
-                                nb_iterations = 100, #number of times classification AUC will be computed for each combination of features
-                                MR_range = 1:50, #range of ranked MRs for which to compute AUC
-                                interactome = NULL,
-                                GEM = NULL,
-                                top_and_bottom = TRUE, 
-                                equilibrate_top_bottom = FALSE,
-                                mRNA_control = FALSE, 
-                                random_negative_control = TRUE,
-                                compute_null = TRUE,
-                                equilibrate_classes = FALSE, #different from folds- equilibrate classes. Here will drop off extra patients from the majority class
-                                save_path = './intermediate_files',
-                                savefile = TRUE,
-                                loadfile = TRUE){
+                       k, 
+                       c,
+                       pipeline_iter = 1,
+                       classification_algorithm = c('random_forest', 'logistic_regression', 'lda','svm', 'xgboost', 'neural_nets'),
+                       nb_iterations = 100, #number of times classification AUC will be computed for each combination of features
+                       MR_range = 1:50, #range of ranked MRs for which to compute AUC
+                       interactome = NULL,
+                       GEM = NULL,
+                       top_and_bottom = TRUE, 
+                       equilibrate_top_bottom = FALSE,
+                       mRNA_control = FALSE, 
+                       random_negative_control = TRUE,
+                       compute_null = TRUE,
+                       equilibrate_classes = FALSE, #different from folds- equilibrate classes. Here will drop off extra patients from the majority class
+                       pAUC_range = c(0,1),
+                       save_path = './intermediate_files',
+                       savefile = TRUE,
+                       loadfile = TRUE){
   
   require(viper)
   require(randomForest)
@@ -167,7 +168,10 @@ validation <- function(Risk_group_classification_object = NULL,
                                  GEM_training[, c(group_1_training, group_2_training)], 
                                  per = 1000, method = 'zscore', verbose = FALSE, bootstrap = FALSE)
             
-            if (mRNA_control == TRUE) vp = vps$signature
+            if (mRNA_control == TRUE) {
+              vp = vps$signature
+              vp[which(is.na(vp))] <- 0
+              }
             if (mRNA_control == FALSE) vp = viper(vps, method = 'none', regulon = interactome, verbose = F)
             
             vp = vp[ , group_1_training]
@@ -177,7 +181,10 @@ validation <- function(Risk_group_classification_object = NULL,
                                  GEM_training[,group_2_training], 
                                  per = 1000, method = 'zscore', verbose = FALSE, bootstrap = FALSE)
             
-            if (mRNA_control == TRUE) vp = vps$signature
+            if (mRNA_control == TRUE){
+              vp = vps$signature
+              vp[which(is.na(vp))] <- 0
+            } 
             if (mRNA_control == FALSE) vp = viper(vps, method = 'none', regulon = interactome, verbose = F)
           }
           
@@ -210,7 +217,10 @@ validation <- function(Risk_group_classification_object = NULL,
                                  bootstrap = F)
           
           
-          if (mRNA_control == TRUE) vp_c = vps_c$signature
+          if (mRNA_control == TRUE) {
+            vp_c = vps_c$signature
+            vp_c[which(is.na(vp_c))] <- 0
+            }
           if (mRNA_control == FALSE) vp_c = viper(vps_c, regulon = interactome, method = 'none', verbose = F)
           
           vp_training_c = vp_c[ , c(group_1_training, group_2_training)]
@@ -275,7 +285,8 @@ validation <- function(Risk_group_classification_object = NULL,
                                         group_2_training = group_2_training_classification,
                                         group_1_validation = group_1_validation_classification, 
                                         group_2_validation = group_2_validation_classification,
-                                        features = features[1:iter_features])
+                                        features = features[1:iter_features],
+                                        pAUC_range = pAUC_range)
                 
         
                 
@@ -318,7 +329,8 @@ validation <- function(Risk_group_classification_object = NULL,
                                                            group_2_training = group_2_training_classification,
                                                            group_1_validation = group_1_validation_classification, 
                                                            group_2_validation = group_2_validation_classification,
-                                                           features = neg_control_features[1:iter_features]) #sample(features, iter_features, F)) 
+                                                           features = neg_control_features[1:iter_features],
+                                                           pAUC_range = pAUC_range) #sample(features, iter_features, F)) 
              
               
               
@@ -329,7 +341,8 @@ validation <- function(Risk_group_classification_object = NULL,
                                                      group_2_training = group_2_training_classification_null,
                                                      group_1_validation = group_1_validation_classification_null, 
                                                      group_2_validation = group_2_validation_classification_null,
-                                                     features = features[1:iter_features]) 
+                                                     features = features[1:iter_features],
+                                                     pAUC_range = pAUC_range) 
               }
           
               

@@ -21,9 +21,10 @@ MRs_per_fold <- function(Risk_group_classification_object = NULL,
       
       list_features = list()
       list_mean_NES = list()
-      mat_features = matrix(NA, nrow = 0, ncol = 3, dimnames = list(NULL, c('features', 'votes', 'mean_NES')))
+      mat_features = matrix(NA, nrow = 0, ncol = 4, dimnames = list(NULL, c('features', 'votes', 'mean_NES', 'p-val')))
       
       for (fold_iter in k){
+        
         #Load the Risk_group_classification_object (specific to the pipeline iteration number, the fold number and the cluster number)
         #Extract the AUC values for the validation and the negative control
         
@@ -42,7 +43,7 @@ MRs_per_fold <- function(Risk_group_classification_object = NULL,
         }else{
           stochastic_method = TRUE  
         }
-      
+        
         
         #if true, there are two AUC distributions: one for the negative control and one for the validation. p-value is calculated by a t-test
         #(stochastic_method == FALSE) -- if false, there is one AUC distribution for the negative control and one single point for the negative control, p-value is calculated by computing the AUC's z-score in the negative control's distribution (minimum: 1/nb samples)
@@ -60,8 +61,9 @@ MRs_per_fold <- function(Risk_group_classification_object = NULL,
           
           vector_AUC = apply(list_AUC, 2, mean)
           vector_AUC_neg_ctrl = apply(list_AUC_neg_ctrl, 2, mean)
+          
           if (use_null) vector_AUC_null = apply(list_AUC_null, 2, mean)
-
+          
           
         } else { #stochastic_method FALSE
           nb_features_tested = length(list_AUC)
@@ -79,12 +81,12 @@ MRs_per_fold <- function(Risk_group_classification_object = NULL,
           #compute p-value by modeling AUC_neg_ctrl as a normal distribution
           vector_sds_AUC_neg_ctrl = apply(list_AUC_neg_ctrl, 2, sd)
           vector_means_AUC_neg_ctrl = apply(list_AUC_neg_ctrl, 2, mean)
-          vector_p_vals = sapply(1:length(list_AUC), function(i) pnorm(q = list_AUC[i], mean = vector_means_AUC_neg_ctrl[i], sd = vector_sds_AUC_neg_ctrl[i])) 
+          vector_p_vals = sapply(1:length(list_AUC), function(i) pnorm(q = list_AUC[i], mean = vector_means_AUC_neg_ctrl[i], sd = vector_sds_AUC_neg_ctrl[i], lower.tail = F)) 
           
           if (use_null){
             vector_sds_AUC_null = apply(list_AUC_null, 2, sd)
             vector_means_AUC_null = apply(list_AUC_null, 2, mean)
-            vector_p_vals_null = sapply(1:length(list_AUC), function(i) pnorm(q = list_AUC[i], mean = vector_means_AUC_null[i], sd = vector_sds_AUC_null[i])) 
+            vector_p_vals_null = sapply(1:length(list_AUC), function(i) pnorm(q = list_AUC[i], mean = vector_means_AUC_null[i], sd = vector_sds_AUC_null[i], lower.tail = F)) 
           }
           
         }
@@ -92,11 +94,12 @@ MRs_per_fold <- function(Risk_group_classification_object = NULL,
           vector_p_vals[1] = 0
         }
         
+        
         #Condition for selecting the top features: minimum index value when continuity from 1 is broken in:
         #1- indices for significant p-values
         #2- indices for AUCs above negative control
-
-  
+        
+        
         
         Top_features_selected = FALSE
         COUNTER = 2
@@ -104,8 +107,9 @@ MRs_per_fold <- function(Risk_group_classification_object = NULL,
         nb_features_to_test = length(vector_AUC)
         if (use_null == TRUE){
           while (Top_features_selected == FALSE){
-
-            if ( (vector_AUC[COUNTER] >= vector_means_AUC_neg_ctrl[COUNTER]) & (vector_p_vals[COUNTER] < p_value_threshold) & (vector_AUC[COUNTER] >= vector_means_AUC_null[COUNTER]) & (vector_p_vals_null[COUNTER] < p_value_threshold) & (COUNTER <= nb_features_to_test) ){
+            
+            #if ( (vector_AUC[COUNTER] >= vector_means_AUC_neg_ctrl[COUNTER]) & (vector_p_vals[COUNTER] < p_value_threshold) & (vector_AUC[COUNTER] >= vector_means_AUC_null[COUNTER]) & (vector_p_vals_null[COUNTER] < p_value_threshold) & (COUNTER <= nb_features_to_test) ){
+            if ( (vector_AUC[COUNTER] >= vector_means_AUC_neg_ctrl[COUNTER]) & (vector_AUC[COUNTER] >= vector_means_AUC_null[COUNTER]) & (vector_p_vals_null[COUNTER] < p_value_threshold) & (COUNTER <= nb_features_to_test) ){
               COUNTER = COUNTER + 1  
             } else{
               if (COUNTER > 2){
@@ -118,7 +122,8 @@ MRs_per_fold <- function(Risk_group_classification_object = NULL,
         }else{
           while (Top_features_selected == FALSE){
             
-            if ( (vector_AUC[COUNTER] >= vector_means_AUC_neg_ctrl[COUNTER]) && (vector_p_vals[COUNTER] < p_value_threshold) & (COUNTER <= nb_features_to_test) ){
+            #if ( (vector_AUC[COUNTER] >= vector_means_AUC_neg_ctrl[COUNTER]) && (vector_p_vals[COUNTER] < p_value_threshold) & (COUNTER <= nb_features_to_test) ){
+            if ( (vector_AUC[COUNTER] >= vector_means_AUC_neg_ctrl[COUNTER]) & (COUNTER <= nb_features_to_test) ){
               COUNTER = COUNTER + 1  
             } else{
               if (COUNTER > 2){
@@ -130,13 +135,13 @@ MRs_per_fold <- function(Risk_group_classification_object = NULL,
           }  
         }
         
-       
-
+        
+        
         list_features[[fold_iter]] = Top_features
         list_mean_NES[[fold_iter]] = Risk_group_classification_object[[paste0('iter_', pipeline_iterations)]][['list_MRs']][[paste0('k', fold_iter, '_c', clust_iter)]][Top_features]
         
-     
-       
+        
+        
       }#end fold_iter
       
       ##############3
@@ -154,7 +159,6 @@ MRs_per_fold <- function(Risk_group_classification_object = NULL,
         row.names(mat_features) = unique_features
         mat_features[,'features'] = unique_features
         mat_features[,'votes'] = sapply(unique_features, function(i) table(unlist(list_features))[i] )
-        
         
         list_mean_NES = lapply(unique_features, function(i) mean(unlist(list_mean_NES)[which(unlist(list_features) == i)]) )
         list_mean_NES = unlist(list_mean_NES)
@@ -197,6 +201,7 @@ MRs_per_fold <- function(Risk_group_classification_object = NULL,
 
 
 
+
 #validation of the features found in MRs_per_fold in the heldout data set
 #for each fold, if there are significant features, use them to classify the heldout data
 #cluster heldout data using the same clustering algorithm
@@ -210,6 +215,7 @@ Internal_validation <- function(Risk_group_classification_object = NULL,
                                 interactome, 
                                 mRNA_control = FALSE,
                                 compute_null = TRUE,
+                                pAUC_range = c(0,1),
                                 savefile = TRUE,
                                 loadfile = TRUE){
   #normalize heldout data with the entire data set
@@ -282,7 +288,10 @@ Internal_validation <- function(Risk_group_classification_object = NULL,
         vps_classification$signature = vps_classification$signature[-which(apply(vps_classification$signature, 1, sd) == 0),] #remove genes that don't vary
         
         #mRNA_control == TRUE : for classifying using mRNA expression as predictors instead of viper activities
-        if (mRNA_control == TRUE) vp_classification = vps_classification$signature
+        if (mRNA_control == TRUE) {
+          vp_classification = vps_classification$signature
+          vp_classification[which(is.na(vp_classification))] <- 0 #consider removing rows with low variance (these features may lead to errors in classification)
+          }
         if (mRNA_control == FALSE) vp_classification = viper(vps_classification$signature, regulon = interactome, method = 'none', verbose = F)
         
         final_ranked_list_features = intersect(final_ranked_list_features, row.names(vp_classification))
@@ -347,7 +356,8 @@ Internal_validation <- function(Risk_group_classification_object = NULL,
                                                   group_2_training = training_patients_group_2,
                                                   group_1_validation = test_patients_group_1, 
                                                   group_2_validation = test_patients_group_2,
-                                                  features = final_ranked_list_features[1:iter_features])
+                                                  features = final_ranked_list_features[1:iter_features],
+                                                  pAUC_range = pAUC_range)
               
               
               if (is.null(classification_res$AUC) == TRUE) {
@@ -387,7 +397,8 @@ Internal_validation <- function(Risk_group_classification_object = NULL,
                                                          group_2_training = training_patients_group_2,
                                                          group_1_validation = test_patients_group_1, 
                                                          group_2_validation = test_patients_group_2,
-                                                         features = neg_control_features[1:iter_features]) 
+                                                         features = neg_control_features[1:iter_features],
+                                                         pAUC_range = pAUC_range) 
             
             
             
@@ -400,12 +411,13 @@ Internal_validation <- function(Risk_group_classification_object = NULL,
 
               
             classification_res_null = classification(classification_method = classification_algorithm,
-                                                         vp_matrix = vp_classification,
-                                                         group_1_training = group_1_training_classification_null, 
-                                                         group_2_training = group_2_training_classification_null,
-                                                         group_1_validation = group_1_validation_classification_null, 
-                                                         group_2_validation = group_2_validation_classification_null,
-                                                         features = final_ranked_list_features[1:iter_features])   
+                                                     vp_matrix = vp_classification,
+                                                     group_1_training = group_1_training_classification_null, 
+                                                     group_2_training = group_2_training_classification_null,
+                                                     group_1_validation = group_1_validation_classification_null, 
+                                                     group_2_validation = group_2_validation_classification_null,
+                                                     features = final_ranked_list_features[1:iter_features],
+                                                     pAUC_range = pAUC_range)   
             }
          
             
