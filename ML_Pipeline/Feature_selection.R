@@ -7,6 +7,7 @@ MRs_per_fold <- function(Risk_group_classification_object = NULL,
                          c,
                          pipeline_iter = 1,
                          p_value_threshold = 0.05,
+                         maximize_diff_null_test = FALSE,
                          use_null = TRUE,
                          savefile = TRUE,
                          loadfile = TRUE){
@@ -17,6 +18,10 @@ MRs_per_fold <- function(Risk_group_classification_object = NULL,
   if (loadfile == TRUE) Risk_group_classification_object = readRDS('./intermediate_files/training_classification_results.rda')
   
   for (pipeline_iterations in pipeline_iter){
+    
+    if (is.null(Risk_group_classification_object) == FALSE) k = which(1:max(k) %in% as.numeric(gsub(pattern = 'k', replacement = '', x = sapply(names(Risk_group_classification_object[[paste0('iter_', pipeline_iterations)]][['list_AUC']]), function(i) strsplit(i, '_')[[1]][1])))) 
+    
+    
     for (clust_iter in c){
       
       list_features = list()
@@ -47,25 +52,31 @@ MRs_per_fold <- function(Risk_group_classification_object = NULL,
         
         #if true, there are two AUC distributions: one for the negative control and one for the validation. p-value is calculated by a t-test
         #(stochastic_method == FALSE) -- if false, there is one AUC distribution for the negative control and one single point for the negative control, p-value is calculated by computing the AUC's z-score in the negative control's distribution (minimum: 1/nb samples)
-        if (stochastic_method == TRUE) {
-          nb_features_tested = ncol(list_AUC)
-          #invert AUCs if systematically under 0.5
-          if (sum(apply(list_AUC, 2, mean) < 0.5)/ncol(list_AUC) > 0.7) { #if AUC is systematically below 0.5, invert it
-            list_AUC = 1 - list_AUC
-            list_AUC_neg_ctrl = 1 - list_AUC_neg_ctrl
-            if (use_null) list_AUC_null = 1 - list_AUC_null
-          }
-          #compute p-values by t-test
-          vector_p_vals = sapply(1:ncol(list_AUC), function(i) t.test(list_AUC[,i], list_AUC_neg_ctrl[,i])$p.value )
-          if (use_null) vector_p_vals_null = sapply(1:ncol(list_AUC), function(i) t.test(list_AUC[,i], list_AUC_null[,i])$p.value )
-          
-          vector_AUC = apply(list_AUC, 2, mean)
-          vector_AUC_neg_ctrl = apply(list_AUC_neg_ctrl, 2, mean)
-          
-          if (use_null) vector_AUC_null = apply(list_AUC_null, 2, mean)
-          
-          
-        } else { #stochastic_method FALSE
+        
+        #//////////////////////
+        #Do not perform t-test to compute p-value even when stochastic method == TRUE
+        #t.test can raise an error if there is no variability in the distributions (for example all 1's)
+        
+        if (stochastic_method == TRUE)  list_AUC = apply(list_AUC, 2, mean)
+        # nb_features_tested = ncol(list_AUC)
+        # #invert AUCs if systematically under 0.5
+        # if (sum(apply(list_AUC, 2, mean) < 0.5)/ncol(list_AUC) > 0.7) { #if AUC is systematically below 0.5, invert it
+        #   list_AUC = 1 - list_AUC
+        #   list_AUC_neg_ctrl = 1 - list_AUC_neg_ctrl
+        #   if (use_null) list_AUC_null = 1 - list_AUC_null
+        # }
+        # #compute p-values by t-test
+        # vector_p_vals = sapply(1:ncol(list_AUC), function(i) t.test(list_AUC[,i], list_AUC_neg_ctrl[,i])$p.value )
+        # if (use_null) vector_p_vals_null = sapply(1:ncol(list_AUC), function(i) t.test(list_AUC[,i], list_AUC_null[,i])$p.value )
+        # 
+        # vector_AUC = apply(list_AUC, 2, mean)
+        # vector_AUC_neg_ctrl = apply(list_AUC_neg_ctrl, 2, mean)
+        # 
+        # if (use_null) vector_AUC_null = apply(list_AUC_null, 2, mean)
+        
+        stochastic_method = FALSE
+        
+        if (stochastic_method == FALSE) { #stochastic_method FALSE
           nb_features_tested = length(list_AUC)
           #invert AUC signs if systematically under 0.5
           if (sum(list_AUC < 0.5)/length(list_AUC) > 0.7) { #if AUC is systematically of the wrong sign, invert the signs
@@ -105,34 +116,59 @@ MRs_per_fold <- function(Risk_group_classification_object = NULL,
         COUNTER = 2
         Top_features = NULL
         nb_features_to_test = length(vector_AUC)
-        if (use_null == TRUE){
-          while (Top_features_selected == FALSE){
-            
-            #if ( (vector_AUC[COUNTER] >= vector_means_AUC_neg_ctrl[COUNTER]) & (vector_p_vals[COUNTER] < p_value_threshold) & (vector_AUC[COUNTER] >= vector_means_AUC_null[COUNTER]) & (vector_p_vals_null[COUNTER] < p_value_threshold) & (COUNTER <= nb_features_to_test) ){
-            if ( (vector_AUC[COUNTER] >= vector_means_AUC_neg_ctrl[COUNTER]) & (vector_AUC[COUNTER] >= vector_means_AUC_null[COUNTER]) & (vector_p_vals_null[COUNTER] < p_value_threshold) & (COUNTER <= nb_features_to_test) ){
-              COUNTER = COUNTER + 1  
-            } else{
-              if (COUNTER > 2){
-                Top_features = 1:(COUNTER - 1)
-                Top_features = names(Risk_group_classification_object[[paste0('iter_', pipeline_iterations)]][['list_MRs']][[paste0('k', fold_iter, '_c', clust_iter)]])[Top_features]
+        
+        if (maximize_diff_null_test == FALSE){ #will select a number of proteins that are consistently above the negative control and the null model (if available)
+          if (use_null == TRUE){
+            while (Top_features_selected == FALSE){
+              
+              #if ( (vector_AUC[COUNTER] >= vector_means_AUC_neg_ctrl[COUNTER]) & (vector_p_vals[COUNTER] < p_value_threshold) & (vector_AUC[COUNTER] >= vector_means_AUC_null[COUNTER]) & (vector_p_vals_null[COUNTER] < p_value_threshold) & (COUNTER <= nb_features_to_test) ){
+              if ( (vector_AUC[COUNTER] >= vector_means_AUC_neg_ctrl[COUNTER]) & (vector_AUC[COUNTER] >= vector_means_AUC_null[COUNTER]) & (vector_p_vals_null[COUNTER] < p_value_threshold) & (COUNTER <= nb_features_to_test) ){
+                COUNTER = COUNTER + 1  
+              } else{
+                if (COUNTER > 2){
+                  Top_features = 1:(COUNTER - 1)
+                  Top_features = names(Risk_group_classification_object[[paste0('iter_', pipeline_iterations)]][['list_MRs']][[paste0('k', fold_iter, '_c', clust_iter)]])[Top_features]
+                }
+                Top_features_selected = TRUE
               }
+            }
+          }else{
+            
+            while (Top_features_selected == FALSE){
+              
+              #if ( (vector_AUC[COUNTER] >= vector_means_AUC_neg_ctrl[COUNTER]) && (vector_p_vals[COUNTER] < p_value_threshold) & (COUNTER <= nb_features_to_test) ){
+              if ( (vector_AUC[COUNTER] >= vector_means_AUC_neg_ctrl[COUNTER]) & (COUNTER <= nb_features_to_test) ){
+                COUNTER = COUNTER + 1  
+              } else{
+                if (COUNTER > 2){
+                  Top_features = 1:(COUNTER - 1)
+                  Top_features = names(Risk_group_classification_object[[paste0('iter_', pipeline_iterations)]][['list_MRs']][[paste0('k', fold_iter, '_c', clust_iter)]])[Top_features]
+                }
+                Top_features_selected = TRUE
+              }
+            }  
+          }
+          
+        } else{ #will only maximize the p-value between the null model and the test AUC and select the protein with lowest p-value that is also above the negative control
+          
+          COUNTER = 2
+          ordered_p_vals = order(vector_p_vals_null, decreasing = F)
+          while (Top_features_selected == FALSE){
+            index = ordered_p_vals[COUNTER]
+            
+            
+            if ( (vector_AUC[index] >= vector_means_AUC_neg_ctrl[index]) & (vector_p_vals_null[index] < p_value_threshold)  ){
+              Top_features = 1:index
+              Top_features = names(Risk_group_classification_object[[paste0('iter_', pipeline_iterations)]][['list_MRs']][[paste0('k', fold_iter, '_c', clust_iter)]])[Top_features]
               Top_features_selected = TRUE
+            } else{
+              COUNTER = COUNTER + 1
+              if (COUNTER >= length(ordered_p_vals)) {
+                Top_features_selected = TRUE
+                Top_features = NULL
+              }
             }
           }
-        }else{
-          while (Top_features_selected == FALSE){
-            
-            #if ( (vector_AUC[COUNTER] >= vector_means_AUC_neg_ctrl[COUNTER]) && (vector_p_vals[COUNTER] < p_value_threshold) & (COUNTER <= nb_features_to_test) ){
-            if ( (vector_AUC[COUNTER] >= vector_means_AUC_neg_ctrl[COUNTER]) & (COUNTER <= nb_features_to_test) ){
-              COUNTER = COUNTER + 1  
-            } else{
-              if (COUNTER > 2){
-                Top_features = 1:(COUNTER - 1)
-                Top_features = names(Risk_group_classification_object[[paste0('iter_', pipeline_iterations)]][['list_MRs']][[paste0('k', fold_iter, '_c', clust_iter)]])[Top_features]
-              }
-              Top_features_selected = TRUE
-            }
-          }  
         }
         
         
@@ -212,7 +248,8 @@ Internal_validation <- function(Risk_group_classification_object = NULL,
                                 c,
                                 classification_algorithm = c('random_forest', 'logistic_regression', 'lda','svm', 'xgboost', 'neural_nets'), 
                                 nb_iterations = 100,
-                                interactome, 
+                                interactome,
+                                max_features_to_test = NULL,
                                 mRNA_control = FALSE,
                                 compute_null = TRUE,
                                 pAUC_range = c(0,1),
@@ -228,6 +265,7 @@ Internal_validation <- function(Risk_group_classification_object = NULL,
   require(DESeq2)
   require(MASS)
   require(e1071) 
+  require(pROC)
   
   skip_validation = FALSE
   
@@ -250,14 +288,19 @@ Internal_validation <- function(Risk_group_classification_object = NULL,
       final_ranked_list_features = readRDS(paste0('./intermediate_files/significant_MRs_p', pipeline_iterations, '_c', clust_iter, '.rda'))
       final_ranked_list_features = final_ranked_list_features[[paste0('iter_', pipeline_iterations)]]$significant_MRs[[paste0('c', clust_iter)]]
       
+      if (is.null(max_features_to_test) == FALSE) final_ranked_list_features = final_ranked_list_features[1:min(max_features_to_test, length(final_ranked_list_features))]
+      
       if (length(final_ranked_list_features) < 2) skip_validation = TRUE
-      MR_range = 1: length(final_ranked_list_features)
+      MR_range = 1:length(final_ranked_list_features)
       
       #Assignment for training patients and test patients sets
       test_patients_group_1 = Risk_group_classification_object[[paste0('iter_', pipeline_iterations)]]$heldout_patients_group_1
       test_patients_group_2 = Risk_group_classification_object[[paste0('iter_', pipeline_iterations)]]$heldout_patients_group_2
       training_patients_group_1 = Risk_group_classification_object[[paste0('iter_', pipeline_iterations)]]$patient_group_1
       training_patients_group_2 = Risk_group_classification_object[[paste0('iter_', pipeline_iterations)]]$patient_group_2
+      
+      training_patients_group_1 = setdiff(training_patients_group_1, test_patients_group_1)
+      training_patients_group_2 = setdiff(training_patients_group_2, test_patients_group_2)
       
       list_res_AUC = list()
       list_res_pred = list()
@@ -271,28 +314,37 @@ Internal_validation <- function(Risk_group_classification_object = NULL,
       list_truth_null = list()
 
       if (skip_validation == FALSE){
-        vps_classification = viperSignature(GEM[,c(training_patients_group_1, training_patients_group_2, test_patients_group_1, test_patients_group_2)],
-                                            GEM[,c(training_patients_group_1, training_patients_group_2)],
-                                            per = 1000, 
-                                            method = 'zscore',
-                                            verbose = F, bootstrap = F)
-        
-        vps_classification$signature[which(is.na(vps_classification$signature))] <- 0 #to make sure there are no NA values in the signature (would happen if you have a gene with 0 counts in all samples)
-        vps_classification$nullmodel[which(is.na(vps_classification$nullmodel))] <- 0
-        
+        # vps_classification = viperSignature(GEM[,c(training_patients_group_1, training_patients_group_2, test_patients_group_1, test_patients_group_2)],
+        #                                     GEM[,c(training_patients_group_1, training_patients_group_2)],
+        #                                     per = 1000, 
+        #                                     method = 'zscore',
+        #                                     verbose = F, bootstrap = F)
+        # 
+        # vps_classification$signature[which(is.na(vps_classification$signature))] <- 0 #to make sure there are no NA values in the signature (would happen if you have a gene with 0 counts in all samples)
+        # vps_classification$nullmodel[which(is.na(vps_classification$nullmodel))] <- 0
+        # 
         #remove features with no variation (usually they correspond to rows that sum to 0)
         #features with no variation will not efficiently classify
         #invariant features may end up in the negative control, but they will mess up its classification
-        vps_classification$signature = as.matrix(vps_classification$signature)
-        vps_classification$signature[which(is.na(vps_classification$signature))] = 0 #needs to be a matrix, if a data.frame "unspecified columns" error will come up
-        vps_classification$signature = vps_classification$signature[-which(apply(vps_classification$signature, 1, sd) == 0),] #remove genes that don't vary
+        
+        # vps_classification$signature = as.matrix(vps_classification$signature)
+        # vps_classification$signature[which(is.na(vps_classification$signature))] = 0 #needs to be a matrix, if a data.frame "unspecified columns" error will come up
+        # vps_classification$signature = vps_classification$signature[-which(apply(vps_classification$signature, 1, sd) == 0),] #remove genes that don't vary
         
         #mRNA_control == TRUE : for classifying using mRNA expression as predictors instead of viper activities
+        
+        vp_classification = fast_viper(full_matrix = GEM, 
+                                       test = c(training_patients_group_1, training_patients_group_2, test_patients_group_1, test_patients_group_2), 
+                                       ref = c(training_patients_group_1, training_patients_group_2),
+                                       interactome = interactome, 
+                                       per = 100, 
+                                       return_GES = mRNA_control)
+        
+        
         if (mRNA_control == TRUE) {
-          vp_classification = vps_classification$signature
           vp_classification[which(is.na(vp_classification))] <- 0 #consider removing rows with low variance (these features may lead to errors in classification)
+          vp_classification = vp_classification[which(apply(vp_classification, 1, sd) != 0),] #remove rows with SD == 0 (potential problem: global SD may not be 0, but SD within subset fold may be 0)
           }
-        if (mRNA_control == FALSE) vp_classification = viper(vps_classification$signature, regulon = interactome, method = 'none', verbose = F)
         
         final_ranked_list_features = intersect(final_ranked_list_features, row.names(vp_classification))
       }

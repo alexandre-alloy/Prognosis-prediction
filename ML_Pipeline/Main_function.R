@@ -290,31 +290,29 @@ Initial_normalization_clust <- function(Initial_processing_folds_object, #object
       #for each fold, compute the viper matrix for the training samples against the average of the training samples
       GEM_training = as.matrix(list_training_vst[[fold_iter]])
       GEM_validation = as.matrix(list_validation_vst[[fold_iter]])
-      #vp_training_validation will be used to compute the AUC for classification with a number of top MRs
-      vps_training_validation = viperSignature(cbind(GEM_training, GEM_validation), 
-                                               GEM_training, #reference is GEM_training, so that any new patient will have its viper activity computed against the same reference
-                                               per = 1000,
-                                               method = 'zscore',
-                                               verbose = T, bootstrap = FALSE)
       
-      if (mRNA_control == FALSE){
-        vp_training_validation = viper(vps_training_validation,
-                                       regulon = interactome, 
-                                       method = 'none', 
-                                       verbose = T)  
-      }
-      else{
-        vp_training_validation = vps_training_validation$signature #mRNA control: viper signature matrix
-      }
       
+      
+      vp_training_validation = fast_viper(full_matrix = GEM, 
+                                          test = c(training_samples, validation_samples), 
+                                          ref =  training_samples, 
+                                          interactome = interactome, 
+                                          return_GES = mRNA_control)
+      
+      if (mRNA_control == TRUE){
+        vp_training_validation[which(is.na(vp_training_validation))] <- 0
+        vp_training_validation = vp_training_validation[which(apply(vp_training_validation, 1, sd) != 0),]    
+      }
+
       
       #vp training is independent of validation
-      vps_training = viperSignature(GEM_training, GEM_training, per = 1000, method = 'zscore', verbose = T, bootstrap = F)
-      if (mRNA_control == FALSE) vp_training = viper(eset = vps_training, regulon = interactome, method = 'none', verbose = T)
-      if (mRNA_control == TRUE) vp_training = vps_training$signature
+      
+      vp_training = vp_training_validation[,training_samples] #fast_viper(full_matrix = GEM_training, test = colnames(GEM_training), ref = colnames(GEM_training), interactome = interactome, per = 1000)
+      vp_validation = vp_training_validation[ , validation_samples] 
+    
       
       #vp validation is not totally independent of training (e.g. new patients will be computed against the average of the training data)
-      vp_validation = vp_training_validation[ , unlist(folds[["list_validation"]][fold_iter])]
+      
       
       #4- CLUSTERING GLOBAL TRAINING VIPER MATRIX
       if (nb_clusters == 1) clustering_algo = 'none'
@@ -412,3 +410,44 @@ Initial_normalization_clust <- function(Initial_processing_folds_object, #object
 }
 
 
+
+
+
+
+fast_viper <- function(full_matrix, test, ref, interactome, per = 100, return_GES = FALSE){
+  require(genefilter)
+  require(viper)
+  #1- compute viper signature (t-test)
+  cat('\nComputing t-test signature ...\n')
+  
+  pb <<- txtProgressBar(min = 1, max = length(test), initial = 1, style = 3)
+  counter = 0
+  
+  full_matrix = full_matrix[,c(test,ref)]
+  
+  vpsig = lapply(test, function(i, pb) {
+    counter <<- counter + 1
+    setTxtProgressBar(pb, counter)
+    
+    tmp = rowttests(x = full_matrix[,i] - full_matrix[,ref] )
+    
+    (qnorm(tmp$p.value/2, lower.tail=FALSE)*sign(tmp$statistic))
+    
+  }, pb = pb)
+  
+  vpsig = matrix(unlist(vpsig), nrow = length(vpsig[[1]]))
+  rownames(vpsig) = row.names(full_matrix)
+  colnames(vpsig) = test
+  
+  if (return_GES) return(vpsig)
+  
+  #2- Compute t-test null
+  cat('\nComputing null model ...\n')
+  dnull = ttestNull(x = full_matrix[,test], y = full_matrix[,ref], per = per, verbose = TRUE)
+  
+  #3- Compute viper
+  
+  vp_res = viper(eset = vpsig, regulon = interactome, dnull = dnull, method = 'none', verbose = T)
+  return(vp_res)
+  
+}

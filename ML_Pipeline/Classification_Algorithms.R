@@ -227,12 +227,14 @@ SVM <- function(vp_matrix,
 
 #New function, can compute partial AUCs
 Calculate_AUC <- function(predictions, truth, pAUC_range = pAUC_range){
+  require(pROC)
   AUC = auc(response = truth, 
       predictor = predictions, 
       partial.auc = c(pAUC_range[1], pAUC_range[2]), 
       partial.auc.focus = "specificity", 
       allow.invalid.partial.auc.correct = TRUE, 
       partial.auc.correct = TRUE)
+  #write.table(pAUC_range, file = './pAUC_range.txt')
   return(AUC)
 }
 

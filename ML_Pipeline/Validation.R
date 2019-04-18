@@ -46,7 +46,8 @@ validation <- function(Risk_group_classification_object = NULL,
   require(ROCR)
   require(DESeq2)
   require(MASS)
-  require(e1071) 
+  require(e1071)
+  require(pROC)
   
   
   set.seed(as.integer((as.double(Sys.time())*1000+Sys.getpid()) %% 2^31))
@@ -164,28 +165,33 @@ validation <- function(Risk_group_classification_object = NULL,
           if (length(group_1_training) <= 2 | length(group_2_training) <= 2){
             #Cannot compute a signature with 2 or fewer samples, this workaround will yield the correct result
             #This workaround may be slightly slower, for this reason I don't use it as the default method for computing the viper matrix
-            vps = viperSignature(GEM_training[, c(group_1_training, group_2_training)], 
-                                 GEM_training[, c(group_1_training, group_2_training)], 
-                                 per = 1000, method = 'zscore', verbose = FALSE, bootstrap = FALSE)
+            
+            vp = fast_viper(full_matrix = GEM_training[, c(group_1_training, group_2_training)], 
+                test = c(group_1_training, group_2_training), 
+                ref = c(group_1_training, group_2_training), 
+                interactome = interactome,
+                return_GES = mRNA_control)
             
             if (mRNA_control == TRUE) {
-              vp = vps$signature
               vp[which(is.na(vp))] <- 0
-              }
-            if (mRNA_control == FALSE) vp = viper(vps, method = 'none', regulon = interactome, verbose = F)
+              vp = vp[which(apply(vp, 1, sd) != 0),]
+            }
             
             vp = vp[ , group_1_training]
           }
           else{ #enough samples
-            vps = viperSignature(GEM_training[,group_1_training],
-                                 GEM_training[,group_2_training], 
-                                 per = 1000, method = 'zscore', verbose = FALSE, bootstrap = FALSE)
+            
+            vp = fast_viper(full_matrix = GEM_training, 
+                            test = group_1_training, 
+                            ref = group_2_training, 
+                            interactome = interactome, 
+                            return_GES = mRNA_control)
             
             if (mRNA_control == TRUE){
-              vp = vps$signature
               vp[which(is.na(vp))] <- 0
+              vp = vp[which(apply(vp, 1, sd) != 0),]
             } 
-            if (mRNA_control == FALSE) vp = viper(vps, method = 'none', regulon = interactome, verbose = F)
+            
           }
           
           
@@ -208,21 +214,19 @@ validation <- function(Risk_group_classification_object = NULL,
           list_MRs[[paste0('k',fold_iter,'_c',clust_iter)]] = stouffer
           
           #VALIDATION ########################################
-          vps_c = viperSignature(cbind(GEM_training[, c(group_1_training, group_2_training)],
-                                       GEM_validation[, c(group_1_validation, group_2_validation)]),
-                                 GEM_training[ , c(group_1_training, group_2_training)], 
-                                 per = 1000, 
-                                 method = 'zscore',
-                                 verbose = F, 
-                                 bootstrap = F)
+          
+          vp_c = fast_viper(full_matrix = cbind(GEM_training, GEM_validation), 
+                            test = c(group_1_training, group_2_training, group_1_validation, group_2_validation), 
+                            ref = c(group_1_training, group_2_training), 
+                            interactome = interactome, 
+                            return_GES = mRNA_control)
           
           
           if (mRNA_control == TRUE) {
-            vp_c = vps_c$signature
             vp_c[which(is.na(vp_c))] <- 0
+            vp_c = vp_c[which(apply(vp_c, 1, sd) != 0),]
             }
-          if (mRNA_control == FALSE) vp_c = viper(vps_c, regulon = interactome, method = 'none', verbose = F)
-          
+
           vp_training_c = vp_c[ , c(group_1_training, group_2_training)]
           vp_validation_c = vp_c[ , c(group_1_validation, group_2_validation)]
           
@@ -486,13 +490,25 @@ merge_norm_clust_validation_files <- function(path = './intermediate_files', rem
   for (iter_pipeline in 1:nb_pipeline_iterations){
     for (iter_folds in 1:nb_folds){
       
-      tmp_norm = readRDS(paste0(path, '/norm_clust_p', iter_pipeline, '_k', iter_folds, '.rda'))
+      tmp_norm = tryCatch({
+        readRDS(paste0(path, '/norm_clust_p', iter_pipeline, '_k', iter_folds, '.rda'))
+      }, error = function(e) {
+        message(paste0('Warning: ', path, '/norm_clust_p', iter_pipeline, '_k', iter_folds, '.rda does not exist'))
+        return(NULL)
+      })
+        
       res[[paste0('iter_', iter_pipeline)]]$list_training_vst = tmp_norm[[paste0('iter_', iter_pipeline)]]$list_training_vst
       res[[paste0('iter_', iter_pipeline)]]$list_validation_vst = tmp_norm[[paste0('iter_', iter_pipeline)]]$list_validation_vst
       res[[paste0('iter_', iter_pipeline)]]$list_c_training = tmp_norm[[paste0('iter_', iter_pipeline)]]$list_c_training
       
       for (iter_clust in 1:nb_clusters){
-        tmp_validation = readRDS(paste0(path, '/validation_p', iter_pipeline, '_k', iter_folds, '_c', iter_clust, '.rda'))
+        tmp_validation = tryCatch({
+          readRDS(paste0(path, '/validation_p', iter_pipeline, '_k', iter_folds, '_c', iter_clust, '.rda'))
+        }, error = function(e) {
+          message(paste0('Warning: ', path, '/validation_p', iter_pipeline, '_k', iter_folds, '_c', iter_clust, '.rda does not exist'))
+          return(NULL)
+        })
+        
         res[[paste0('iter_', iter_pipeline)]]$list_MRs[[paste0('k', iter_folds, '_c', iter_clust)]] = tmp_validation[[paste0('iter_', iter_pipeline)]]$list_MRs[[paste0('k', iter_folds, '_c', iter_clust)]]
         res[[paste0('iter_', iter_pipeline)]]$list_AUC[[paste0('k', iter_folds, '_c', iter_clust)]] = tmp_validation[[paste0('iter_', iter_pipeline)]]$list_AUC[[paste0('k', iter_folds, '_c', iter_clust)]]
         res[[paste0('iter_', iter_pipeline)]]$list_pred[[paste0('k', iter_folds, '_c', iter_clust)]] = tmp_validation[[paste0('iter_', iter_pipeline)]]$list_pred[[paste0('k', iter_folds, '_c', iter_clust)]]
