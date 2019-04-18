@@ -2,13 +2,13 @@
 RSCRIPT=/nfs/apps/R/3.5.1/bin/Rscript
 FUNCTIONS_RDATA=/ifs/scratch/c2b2/ac_lab/apa2118/rscripts/classification_by_MRs/Functions.RData #RData file with all functions
 LIST_PATIENT_GROUPS=/ifs/scratch/c2b2/ac_lab/apa2118/rscripts/classification_by_MRs/AML/list_patients.rds #rda file with a list of lists of patients. use patient categories as names
-PATIENT_GROUP_1="multiple_intersect(High_risk, diagnostic, AAML0531)" #testing group, group with a phenotype, e.g. "dead", "relapse"
-PATIENT_GROUP_2="multiple_intersect(Low_risk, diagnostic, AAML0531)" #name of a list corresponding to the first group of patients (control group, e.g "alive", "censored")
-EXP_NAME=AML_HR_LR_diag_AAML0531_2bs_RF
+PATIENT_GROUP_1="multiple_intersect(cluster_1_pam_k3_noRepeats_noOutliers, relapse, diagnostic)" #testing group, group with a phenotype, e.g. "dead", "relapse"
+PATIENT_GROUP_2="multiple_intersect(cluster_1_pam_k3_noRepeats_noOutliers, no_relapse, diagnostic)" #name of a list corresponding to the first group of patients (control group, e.g "alive", "censored")
+EXP_NAME=AML_R_NR_c1_PAM_k3_noRepeats_noOutliers_100_BS
 WORKING_DIR=/ifs/scratch/c2b2/ac_lab/apa2118/rscripts/classification_by_MRs/AML/${EXP_NAME}
 PATH_TO_GENE_EXP_MAT=/ifs/scratch/c2b2/ac_lab/apa2118/rscripts/classification_by_MRs/AML/AML_cpm_entrez.rds #in txt or rds format
 PATH_TO_INTERACTOME=/ifs/scratch/c2b2/ac_lab/apa2118/rscripts/classification_by_MRs/AML/interactome_TF_coTF_AML.rds #in rds format
-NUMBER_OF_FOLDS=2
+NUMBER_OF_FOLDS=100
 NUMBER_OF_CLUSTERS=1
 CLUSTERING_ALGORITHM=Mclust #available options: consensus clustering, Mclust, none (if NUMBER_OF_CLUSTERS == 1: "none" is assigned automatically)
 CLUSTER_GEM=TRUE #if TRUE, clustering is performed on the GEM, if FALSE clustering is performed on the VIPER matrix
@@ -18,6 +18,7 @@ CV_TYPE=monte_carlo #available options: kfold , LOOCV, monte_carlo
 VALIDATION_FOLD_SIZE=0.25 #Only used with monte carlo - a proportion of the sample set for validation e.g. 0.3
 COMPUTE_NULL=TRUE
 RANDOM_NEGATIVE_CONTROL=TRUE #if false, "non-significant" features are used as predictors for the negative control
+MAXIMIZE_DIFF_NULL_TEST=TRUE
 EQUILIBRATE_CLASSES=TRUE
 DOWNSAMPLE_MAJORITY_CLASS=TRUE
 OVERSAMPLE_MINORITY_CLASS=FALSE
@@ -71,7 +72,7 @@ Initial_processing_folds(patient_group_1 = patient_group_1,
  chmod 755 ${WORKING_DIR}/Initial_processing_folds.r
 
  qsub  -N Initial_processing_folds_${EXP_NAME} \
-       -l mem=3G,time=1:: \
+       -l mem=3G,time=2:: \
        -wd ${WORKING_DIR} \
        -b y ${RSCRIPT} \
        ${WORKING_DIR}/Initial_processing_folds.r
@@ -102,7 +103,7 @@ do
 
     qsub -N initial_normalization_clust_p${pipeline_iter}_k${folds_iter}_${EXP_NAME} \
          -hold_jid Initial_processing_folds_${EXP_NAME} \
-         -l mem=6G,time=4:: \
+         -l mem=6G,time=12:: \
          -wd ${WORKING_DIR} \
          -b y ${RSCRIPT} \
          ${WORKING_DIR}/initial_normalization_clust_p${pipeline_iter}_k${folds_iter}.r
@@ -142,7 +143,7 @@ do
 
             qsub -N validation_p${pipeline_iter}_k${folds_iter}_c${clust_iter}_${EXP_NAME}_${CLASSIFICATION_ALGORITHM} \
             -hold_jid initial_normalization_clust_p${pipeline_iter}_k${folds_iter}_${EXP_NAME} \
-            -l mem=6G,time=4:: \
+            -l mem=6G,time=12:: \
             -wd ${WORKING_DIR} \
             -b y ${RSCRIPT} ${WORKING_DIR}/validation_p${pipeline_iter}_k${folds_iter}_c${clust_iter}_${EXP_NAME}_${CLASSIFICATION_ALGORITHM}.r
     done
@@ -157,6 +158,7 @@ MRs_per_fold(Risk_group_classification_object = consolidate,
                          c = 1:"${NUMBER_OF_CLUSTERS}",
                          pipeline_iter = 1:"${NB_PIPELINE_ITERATIONS}",
                          p_value_threshold = 0.05,
+			 maximize_diff_null_test = ${MAXIMIZE_DIFF_NULL_TEST},
                          use_null = ${COMPUTE_NULL},
                          savefile = TRUE,
                          loadfile = TRUE)
@@ -166,7 +168,7 @@ chmod 755 ${WORKING_DIR}/feature_consolidation.r
 
 qsub -N feature_consolidation_${EXP_NAME}_${CLASSIFICATION_ALGORITHM} \
 -hold_jid validation_*${EXP_NAME}_${CLASSIFICATION_ALGORITHM} \
--l mem=6G,time=1:: \
+-l mem=6G,time=2:: \
 -wd ${WORKING_DIR} \
 -b y ${RSCRIPT} ${WORKING_DIR}/feature_consolidation.r
 
@@ -182,6 +184,7 @@ do
                                 c = ${NUMBER_OF_CLUSTERS},
                                 classification_algorithm = '${CLASSIFICATION_ALGORITHM}',
                                 nb_iterations = 100,
+                                max_features_to_test = 50,
                                 interactome,
                                 mRNA_control = ${mRNA_CONTROL},
                                 compute_null = ${COMPUTE_NULL},
@@ -193,7 +196,7 @@ do
 
      qsub -N internal_validation_p${pipeline_iter}_c${clust_iter}_${EXP_NAME} \
      -hold_jid feature_consolidation_${EXP_NAME}_${CLASSIFICATION_ALGORITHM} \
-     -l mem=6G,time=4:: \
+     -l mem=6G,time=12:: \
      -wd ${WORKING_DIR} \
      -b y ${RSCRIPT} ${WORKING_DIR}/internal_validation_p${pipeline_iter}_c${clust_iter}.r
 
@@ -208,6 +211,6 @@ chmod 755 ${WORKING_DIR}/final_result.r
 
 qsub -N final_result_${EXP_NAME} \
 -hold_jid internal_validation*${EXP_NAME} \
--l mem=3G,time=1:: \
+-l mem=3G,time=4:: \
 -wd ${WORKING_DIR} \
 -b y ${RSCRIPT} ${WORKING_DIR}/final_result.r
