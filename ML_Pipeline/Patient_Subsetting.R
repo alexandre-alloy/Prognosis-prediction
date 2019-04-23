@@ -13,6 +13,9 @@ Patient_groupings <- function(samples,
                               equilibrate_classes = TRUE, 
                               subsample_majority_class = TRUE, 
                               oversample_minority_class = FALSE,
+                              equilibrate_subclasses = FALSE,
+                              subclass_1 = NULL,
+                              subclass_2 = NULL,
                               SMOTE = FALSE, GEM = NULL){
   
   if ( ((validation_fold_size >= 1) || (validation_fold_size <= 0)) && overlapping == TRUE) stop('ERROR: Validation_fold_size must be a fraction of all samples between 0 and 1')
@@ -22,6 +25,18 @@ Patient_groupings <- function(samples,
   
   if (SMOTE == TRUE) equilibrate_classes = TRUE
   if ((SMOTE == TRUE) && (is.null(GEM) == TRUE)) stop('ERROR: With SMOTE == TRUE, you need to supply a GEM')
+  
+  if (equilibrate_subclasses == TRUE) {
+    equilibrate_classes = TRUE
+    subsample_majority_class = NULL
+    oversample_minority_class = NULL
+    overlapping = TRUE
+    
+    if (is.null(subclass_1) | is.null(subclass_2)) stop('ERROR: need to define subclass_1 and subclass_2 if equilibrating subclasses')
+    
+    minimum_subclass_length = min(length(setdiff(samples_group_1, subclass_1)) , length(subclass_1) , length(setdiff(samples_group_2, subclass_2)) , length(subclass_2))
+    
+  }
   
   set.seed(as.integer((as.double(Sys.time())*1000+Sys.getpid()) %% 2^31))
   
@@ -48,7 +63,7 @@ Patient_groupings <- function(samples,
   }
   
   
-  if ((equilibrate_classes == TRUE) && (SMOTE == FALSE)){
+  if ((equilibrate_classes == TRUE) && (SMOTE == FALSE) && (equilibrate_subclasses == FALSE)){
     
     if (subsample_majority_class == TRUE) nb_samples_to_equilibrate_to = min(length(samples_group_1), length(samples_group_2))
     if (oversample_minority_class == TRUE) nb_samples_to_equilibrate_to = max(length(samples_group_1), length(samples_group_2))
@@ -133,7 +148,7 @@ Patient_groupings <- function(samples,
     }
   }
   
-  if (equilibrate_classes == TRUE & SMOTE == TRUE & overlapping == FALSE){
+  if ((equilibrate_classes == TRUE) && (SMOTE == TRUE) && (overlapping == FALSE) && (equilibrate_subclasses == FALSE)){
     for (i in 1:nb_iterations){
       sampling_size = floor((1/nb_iterations)*length(samples_group_1))
       list_validation_group_1[[i]] = sample(x = setdiff(samples_group_1, unlist(list_validation_group_1)), size = sampling_size, replace = F)
@@ -144,15 +159,35 @@ Patient_groupings <- function(samples,
       list_validation[[i]] = c(list_validation_group_1[[i]], list_validation_group_2[[i]])
       list_training[[i]] = c(list_training_group_1[[i]], list_training_group_2[[i]])
     }
-    
   }
+  
+  if ((equilibrate_subclasses == TRUE) && (overlapping == TRUE)){
+    
+    for (i in 1:nb_iterations){
+      group_1_1 = sample(setdiff(samples_group_1, subclass_1), minimum_subclass_length, F)
+      group_1_2 = sample(subclass_1, minimum_subclass_length, F)
+      
+      group_2_1 = sample(setdiff(samples_group_2, subclass_2), minimum_subclass_length, F)
+      group_2_2 = sample(subclass_2, minimum_subclass_length, F)
+      
+      list_training_group_1[[i]] = c(group_1_1, group_1_2)
+      list_training_group_2[[i]] = c(group_2_1, group_2_2)
+      
+      list_validation_group_1[[i]] = setdiff(samples_group_1, list_training_group_1[[i]])
+      list_validation_group_2[[i]] = setdiff(samples_group_2, list_training_group_2[[i]])
+      
+      list_validation[[i]] = c(list_validation_group_1[[i]], list_validation_group_2[[i]])
+      list_training[[i]] = c(list_training_group_1[[i]], list_training_group_2[[i]])
+    }
+  }
+  
   
   res = list(list_training = list_training,
              list_validation = list_validation,
              GEM = GEM)
   return(res)
   
-}
+} 
 
 
 
